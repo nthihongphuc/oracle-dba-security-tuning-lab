@@ -1,0 +1,35 @@
+services:
+  oracle-lab-01:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: ${ORACLE_CONTAINER_NAME:-oracle-lab-01}
+    restart: unless-stopped
+    ports:
+      - "${ORACLE_PORT:-1521}:1521"
+    environment:
+      # Mandatory SYS/SYSTEM/PDBADMIN password injected from .env (no hardcoded secret)
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?ORACLE_PASSWORD must be set in .env}
+      APP_USER: ${APP_USER:-HOTEL_BOOTSTRAP}
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:?APP_USER_PASSWORD must be set in .env}
+      TZ: UTC
+    volumes:
+      - oracle_free_data:/opt/oracle/oradata
+      - oracle_rman_backups:/opt/oracle/rman_backups
+      - oracle_rman_logs:/opt/oracle/rman_logs
+      - ./01-security:/opt/lab/01-security:ro
+      - ./02-oltp-tuning:/opt/lab/02-oltp-tuning:ro
+      - ./03-backup-recovery-rman:/opt/lab/03-backup-recovery-rman:ro
+    shm_size: 1g
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 45s
+
+volumes:
+  oracle_free_data:
+    name: oracle_lab_free_data
+  oracle_rman_backups:
+    name: oracle_lab_rman_backups
+  oracle_rman_logs:
+    name: oracle_lab_rman_logs

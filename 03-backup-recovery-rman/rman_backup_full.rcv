@@ -1,0 +1,57 @@
+# ==============================================================================
+# File:        03-backup-recovery-rman/rman_backup_full.rcv
+# Purpose:     Weekly RMAN Level 0 Full Compressed Backup + Archivelog +
+#              Controlfile/SPFILE Autobackup + Retention & Obsolete Cleanup
+# Invocation:  rman target / cmdfile=rman_backup_full.rcv log=<logfile>
+# ==============================================================================
+
+# 1. Persistent RMAN Recovery Settings (idempotent baseline)
+CONFIGURE RETENTION POLICY TO RECOVERY WINDOW OF 7 DAYS;
+CONFIGURE BACKUP OPTIMIZATION ON;
+CONFIGURE CONTROLFILE AUTOBACKUP ON;
+CONFIGURE CONTROLFILE AUTOBACKUP FORMAT FOR DEVICE TYPE DISK TO '/opt/oracle/rman_backups/cf_%F.bkp';
+# BASIC compression requires no Oracle Advanced Compression Option (ACO) license
+CONFIGURE COMPRESSION ALGORITHM 'BASIC';
+CONFIGURE DEVICE TYPE DISK PARALLELISM 2 BACKUP TYPE TO COMPRESSED BACKUPSET;
+CONFIGURE CHANNEL DEVICE TYPE DISK FORMAT '/opt/oracle/rman_backups/%d_bkp_%T_%U.bkp' MAXPIECESIZE 4G;
+CONFIGURE ARCHIVELOG DELETION POLICY TO BACKED UP 1 TIMES TO DISK;
+
+# 2. Execute Online Consistent Level 0 Backup + Archivelogs + Metadata
+RUN {
+  ALLOCATE CHANNEL ch1 DEVICE TYPE DISK FORMAT '/opt/oracle/rman_backups/%d_lvl0_%T_%U.bkp' MAXPIECESIZE 4G;
+  ALLOCATE CHANNEL ch2 DEVICE TYPE DISK FORMAT '/opt/oracle/rman_backups/%d_lvl0_%T_%U.bkp' MAXPIECESIZE 4G;
+
+  # Force current online redo log switch before archiving
+  SQL 'ALTER SYSTEM ARCHIVE LOG CURRENT';
+
+  BACKUP
+    AS COMPRESSED BACKUPSET
+    INCREMENTAL LEVEL 0
+    DATABASE
+    TAG 'LVL0_WEEKLY_FULL'
+    PLUS ARCHIVELOG
+      TAG 'ARCH_WITH_LVL0'
+      DELETE INPUT;
+
+  BACKUP CURRENT CONTROLFILE
+    FORMAT '/opt/oracle/rman_backups/%d_ctl_%T_%U.bkp'
+    TAG 'CTL_WITH_LVL0';
+
+  BACKUP SPFILE
+    FORMAT '/opt/oracle/rman_backups/%d_spfile_%T_%U.bkp'
+    TAG 'SPFILE_WITH_LVL0';
+
+  RELEASE CHANNEL ch1;
+  RELEASE CHANNEL ch2;
+}
+
+# 3. Catalog Hygiene & Retention Enforcement
+CROSSCHECK BACKUP;
+CROSSCHECK ARCHIVELOG ALL;
+DELETE NOPROMPT EXPIRED BACKUP;
+DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;
+DELETE NOPROMPT OBSOLETE RECOVERY WINDOW OF 7 DAYS;
+
+# 4. Verification Summary
+LIST BACKUP SUMMARY;
+REPORT NEED BACKUP;

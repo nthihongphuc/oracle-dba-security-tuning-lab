@@ -1,0 +1,36 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.p12
+*.sso
+*.jks
+*.key
+*.pem
+wallet/
+
+# Oracle local data, logs & RMAN backups
+oradata/
+rman_backups/
+rman_logs/
+*.log
+*.trc
+*.trm
+*.bkp
+*.arc
+*.dbf
+
+# Python & pytest
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

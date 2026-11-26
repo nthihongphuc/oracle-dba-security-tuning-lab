@@ -1,0 +1,42 @@
+# ==============================================================================
+# File:        03-backup-recovery-rman/rman_backup_inc1.rcv
+# Purpose:     Daily RMAN Level 1 Differential Incremental Compressed Backup
+#              + Archivelog Backup & Purge + Catalog Crosscheck
+# Note:        On Oracle Enterprise Edition, enable Block Change Tracking
+#              (ALTER DATABASE ENABLE BLOCK CHANGE TRACKING) to accelerate
+#              Level 1 scans without reading unchanged data blocks.
+# Invocation:  rman target / cmdfile=rman_backup_inc1.rcv log=<logfile>
+# ==============================================================================
+
+RUN {
+  ALLOCATE CHANNEL ch1 DEVICE TYPE DISK FORMAT '/opt/oracle/rman_backups/%d_lvl1_%T_%U.bkp' MAXPIECESIZE 2G;
+  ALLOCATE CHANNEL ch2 DEVICE TYPE DISK FORMAT '/opt/oracle/rman_backups/%d_lvl1_%T_%U.bkp' MAXPIECESIZE 2G;
+
+  # Ensure active redo changes are archived prior to backup
+  SQL 'ALTER SYSTEM ARCHIVE LOG CURRENT';
+
+  BACKUP
+    AS COMPRESSED BACKUPSET
+    INCREMENTAL LEVEL 1
+    DATABASE
+    TAG 'LVL1_DAILY_INC'
+    PLUS ARCHIVELOG
+      TAG 'ARCH_WITH_LVL1'
+      DELETE INPUT;
+
+  BACKUP CURRENT CONTROLFILE
+    FORMAT '/opt/oracle/rman_backups/%d_ctl_%T_%U.bkp'
+    TAG 'CTL_WITH_LVL1';
+
+  RELEASE CHANNEL ch1;
+  RELEASE CHANNEL ch2;
+}
+
+# Reconcile disk catalog against retention window
+CROSSCHECK BACKUP;
+CROSSCHECK ARCHIVELOG ALL;
+DELETE NOPROMPT EXPIRED BACKUP;
+DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;
+DELETE NOPROMPT OBSOLETE RECOVERY WINDOW OF 7 DAYS;
+
+LIST BACKUP SUMMARY;
