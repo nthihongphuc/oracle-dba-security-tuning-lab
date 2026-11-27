@@ -29,6 +29,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SQL_FILES = sorted(REPO_ROOT.glob("*/*.sql"))
+DIAGNOSTIC_SQL_FILES = sorted((REPO_ROOT / "04-diagnostics").glob("*.sql"))
 SHELL_FILES = sorted(REPO_ROOT.glob("*/*.sh"))
 RCV_FILES = sorted(REPO_ROOT.glob("*/*.rcv"))
 ALL_SCRIPT_FILES = SQL_FILES + SHELL_FILES + RCV_FILES
@@ -42,6 +43,11 @@ def _strip_sql_line_comments(sql: str) -> str:
     return re.sub(r"--[^\n]*", "", sql)
 
 
+def _strip_all_sql_comments(sql: str) -> str:
+    without_block = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+    return _strip_sql_line_comments(without_block)
+
+
 def _iter_files(paths: Iterable[Path]) -> list[Path]:
     result = list(paths)
     assert result, "Expected at least one script file to inspect."
@@ -49,7 +55,7 @@ def _iter_files(paths: Iterable[Path]) -> list[Path]:
 
 
 class TestRepositoryStructure:
-    """Ensure all 3 DBA lab pillars and core artifacts exist."""
+    """Ensure all 4 DBA lab pillars and core artifacts exist."""
 
     @pytest.mark.parametrize(
         "rel_path",
@@ -72,6 +78,10 @@ class TestRepositoryStructure:
             "03-backup-recovery-rman/rman_backup_inc1.rcv",
             "03-backup-recovery-rman/run_rman_backup.sh",
             "03-backup-recovery-rman/DR_PITR_RUNBOOK.md",
+            "04-diagnostics/01_top_sql_and_waits.sql",
+            "04-diagnostics/02_blocking_tree_and_locks.sql",
+            "04-diagnostics/03_tablespace_fra_capacity.sql",
+            "04-diagnostics/04_invalid_objects_stale_stats.sql",
         ],
     )
     def test_expected_file_exists(self, rel_path: str) -> None:
@@ -349,6 +359,123 @@ class TestRequiredOraclePrimitives:
         assert "START WITH LIMIT VALUE" in runbook
 
 
+class TestDiagnosticsKitReadOnlyAndPrimitives:
+    """Validate Pillar 4 (04-diagnostics/) Day-2 DBA Triage Kit safety & internals."""
+
+    EXPECTED_DIAGNOSTIC_FILES = (
+        "04-diagnostics/01_top_sql_and_waits.sql",
+        "04-diagnostics/02_blocking_tree_and_locks.sql",
+        "04-diagnostics/03_tablespace_fra_capacity.sql",
+        "04-diagnostics/04_invalid_objects_stale_stats.sql",
+    )
+
+    def test_all_four_diagnostic_scripts_present_and_pure_lf(self) -> None:
+        assert len(DIAGNOSTIC_SQL_FILES) == 4, (
+            f"Expected exactly 4 diagnostic scripts in 04-diagnostics/, found {len(DIAGNOSTIC_SQL_FILES)}"
+        )
+        offenders: list[str] = []
+        for rel_path in self.EXPECTED_DIAGNOSTIC_FILES:
+            path = REPO_ROOT / rel_path
+            assert path.is_file(), f"Missing diagnostic script: {rel_path}"
+            if b"\r" in path.read_bytes():
+                offenders.append(rel_path)
+        assert not offenders, f"CRLF / CR line endings detected in diagnostic scripts: {offenders}"
+
+    @pytest.mark.parametrize("rel_path", EXPECTED_DIAGNOSTIC_FILES)
+    def test_diagnostic_scripts_are_strictly_read_only_and_pdb_scoped(self, rel_path: str) -> None:
+        """Every 04-diagnostics script must switch to FREEPDB1 and execute SELECT-only SQL."""
+        content = _read_text(REPO_ROOT / rel_path)
+        code = _strip_all_sql_comments(content)
+
+        # Must explicitly switch into FREEPDB1
+        assert re.search(
+            r"ALTER\s+SESSION\s+SET\s+CONTAINER\s*=\s*FREEPDB1\s*;",
+            code,
+            re.IGNORECASE,
+        ), f"{rel_path} must explicitly execute ALTER SESSION SET CONTAINER = FREEPDB1;"
+
+        # Zero anti-patterns or hardcoded credentials
+        assert not re.search(r"_ORACLE_SCRIPT", content, re.IGNORECASE)
+        assert not re.search(r"\bGRANT\s+ALL\b", content, re.IGNORECASE)
+        assert not re.search(r"\bIDENTIFIED\s+BY\b", code, re.IGNORECASE)
+
+        # Strictly read-only: zero DML/DDL/ALTER TABLE/ALTER SYSTEM/dynamic SQL execution
+        forbidden_dml_ddl = re.compile(
+            r"\b(?:INSERT|UPDATE|DELETE|MERGE|DROP|TRUNCATE|CREATE|GRANT|REVOKE)\b"
+            r"|\bALTER\s+(?:TABLE|SYSTEM|INDEX|USER|DATABASE|PLUGGABLE|TABLESPACE|PROFILE|ROLE)\b"
+            r"|\bEXECUTE\s+IMMEDIATE\b",
+            re.IGNORECASE,
+        )
+        matches = forbidden_dml_ddl.findall(code)
+        assert not matches, (
+            f"Read-only violation in {rel_path}: forbidden DDL/DML token(s) found: {matches}"
+        )
+
+    def test_top_sql_and_waits_primitives(self) -> None:
+        content = _read_text(REPO_ROOT / "04-diagnostics/01_top_sql_and_waits.sql")
+        lower = content.lower()
+        assert "v$sql" in lower
+        assert "elapsed_time" in lower
+        assert "buffer_gets" in lower
+        assert "v$system_event" in lower
+        assert "wait_class" in lower
+        assert "force_matching_signature" in lower
+        assert re.search(r"COUNT\s*\(\s*\*\s*\)\s*>\s*5", content, re.IGNORECASE)
+        assert re.search(r"COUNT\s*\(\s*DISTINCT\s+sql_id\s*\)\s*>\s*5", content, re.IGNORECASE)
+        assert "v$pgastat" in lower
+        assert "v$sga_dynamic_components" in lower
+        assert "con_id" in lower
+
+    def test_blocking_tree_and_locks_primitives(self) -> None:
+        content = _read_text(REPO_ROOT / "04-diagnostics/02_blocking_tree_and_locks.sql")
+        lower = content.lower()
+        assert re.search(
+            r"CONNECT\s+BY\s+NOCYCLE\s+PRIOR\s+sid\s*=\s*blocking_session",
+            content,
+            re.IGNORECASE,
+        )
+        assert re.search(r"blocking_session\s+IS\s+NULL", content, re.IGNORECASE)
+        assert "v$session" in lower
+        assert "v$sql" in lower
+        assert "v$locked_object" in lower
+        assert "dba_objects" in lower
+        assert "locked_mode" in lower
+        for mode_label in ("'NONE'", "'RS'", "'RX'", "'S'", "'SRX'", "'X'"):
+            assert mode_label in content
+        assert "v$transaction" in lower
+        assert "used_ublk" in lower
+        assert "used_urec" in lower
+        assert "con_id" in lower
+
+    def test_tablespace_fra_capacity_primitives(self) -> None:
+        content = _read_text(REPO_ROOT / "04-diagnostics/03_tablespace_fra_capacity.sql")
+        lower = content.lower()
+        assert "dba_tablespace_usage_metrics" in lower
+        assert "dba_tablespaces" in lower
+        assert "used_percent" in lower
+        assert "v$tempseg_usage" in lower
+        assert "v$recovery_file_dest" in lower
+        assert "v$flash_recovery_area_usage" in lower
+        assert "ORA-19809" in content
+        assert "v$log_history" in lower
+
+    def test_invalid_objects_stale_stats_primitives(self) -> None:
+        content = _read_text(REPO_ROOT / "04-diagnostics/04_invalid_objects_stale_stats.sql")
+        lower = content.lower()
+        assert "dba_objects" in lower
+        assert "DBMS_UTILITY.COMPILE_SCHEMA" in content
+        assert "dba_tab_statistics" in lower
+        assert "stale_stats" in lower
+        assert re.search(r"last_analyzed\s+IS\s+NULL", content, re.IGNORECASE)
+        assert "dba_constraints" in lower
+        assert "dba_indexes" in lower
+        assert "dba_ind_partitions" in lower
+        assert "UNUSABLE" in content
+        assert "dba_segments" in lower
+        assert "'HOTEL_APP'" in content
+        assert "'SEC_ADMIN'" in content
+
+
 class TestDockerComposeHygiene:
     """Validate docker-compose.yml uses Oracle 23ai Free and strict env substitution."""
 
@@ -360,6 +487,11 @@ class TestDockerComposeHygiene:
         svc = data["services"]["oracle-lab-01"]
 
         assert svc["image"] == "gvenzl/oracle-free:23-slim-faststart"
+
+        volumes = svc.get("volumes", [])
+        assert "./04-diagnostics:/opt/lab/04-diagnostics:ro" in volumes, (
+            "docker-compose.yml must mount ./04-diagnostics read-only into /opt/lab/04-diagnostics"
+        )
 
         env = svc["environment"]
         assert isinstance(env, dict)

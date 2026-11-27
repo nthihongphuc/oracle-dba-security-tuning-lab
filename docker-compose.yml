@@ -18,6 +18,7 @@ services:
       - ./01-security:/opt/lab/01-security:ro
       - ./02-oltp-tuning:/opt/lab/02-oltp-tuning:ro
       - ./03-backup-recovery-rman:/opt/lab/03-backup-recovery-rman:ro
+      - ./04-diagnostics:/opt/lab/04-diagnostics:ro
     shm_size: 1g
     healthcheck:
       test: ["CMD", "healthcheck.sh"]
