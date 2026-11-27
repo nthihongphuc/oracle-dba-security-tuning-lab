@@ -1,5 +1,14 @@
 # Oracle 23ai Free — Enterprise DBA Security, OLTP Tuning & RMAN DR Lab
 
+[![CI](https://github.com/nthihongphuc/oracle-dba-security-tuning-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/nthihongphuc/oracle-dba-security-tuning-lab/actions/workflows/ci.yml)
+![Oracle 23ai](https://img.shields.io/badge/Oracle-23ai%20Free-F80000?style=flat-square&logo=oracle&logoColor=white)
+![PL/SQL & RMAN](https://img.shields.io/badge/PL%2FSQL-VPD%20%7C%20FGA%20%7C%20RMAN-B91C1C?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2EA44F?style=flat-square)](./LICENSE)
+
+[Architecture](#architecture-overview) • [Quickstart](#quickstart-docker-compose--oracle-23ai-free) • [Verification](#sample-benchmark--verification-outputs) • [RMAN DR](#rman-backup--disaster-recovery-strategy) • [License](#license)
+
 A clean-room, production-grade **Oracle Database 23ai Free** engineering lab demonstrating end-to-end Mid-to-Senior DBA ownership across three core pillars:
 
 1. **Enterprise Database Security** — Multitenant PDB least-privilege RBAC (`RESOURCE_LIMIT=TRUE`), SQL-injection-proof dynamic privilege delegation (`DBMS_ASSERT` + safe `SCHEMA.OBJECT` splitting), Shared-Pool-friendly VPD/RLS (`DBMS_RLS.STATIC` + PDB `AFTER LOGON` Application Context), Unified Auditing + Fine-Grained Auditing (`DBMS_FGA`) with rolling UTC watermark & `DBMS_AUDIT_MGMT` purge automation, and modern 19c/23ai TDE Wallet architecture.
@@ -190,4 +199,4 @@ One `SQL_ID`, one child cursor (`CHILD_NUMBER = 0`), zero Shared Pool fragmentat
 
 ## License
 
-MIT License — Built strictly as a clean-room synthetic Oracle DBA engineering portfolio lab.
+Licensed under the [MIT License](./LICENSE) — built strictly as a clean-room synthetic Oracle DBA engineering portfolio lab.
